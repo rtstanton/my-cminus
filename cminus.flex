@@ -1,5 +1,5 @@
 /* cminus.flex - scanner for C-Minus programming language. */
-/* Author: Your Name */
+/* Author: Dominic Veltri Ricky Stanton Matt Topolewski */
 /* Date: the date */
 
 %%
