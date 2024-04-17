@@ -1,0 +1,292 @@
+<project name="C-Minus Compiler" default="build" basedir=".">
+	<description>C-Minus Compiler Ant build file</description>
+	
+	<!--=========================================-->
+	<!-- Properties and Utility Targets          -->
+	<!--=========================================-->
+	
+	<!-- source files -->
+    <property name="src.dir" location="../src" />
+    
+    <!-- class and data files -->
+    <property name="build.dir" location="../bin" />
+	
+	<!-- test programs -->
+	<property name="good.dir" location="../good" />
+	<property name="bad.dir" location="../bad" />
+	<property name="test.dir" location="../test" />
+	<property name="runtime.dir" location="../runtime" />
+	
+	<!-- info about setting auto-refresh -->
+	<target name="How-To-Auto-Refresh">
+		<echo message="To make your project auto refresh:" />
+		<echo message="Open Window > Preferences > General > Workspace" />
+		<echo message="Check Refresh using native hooks or polling" />
+		<echo message="Click Apply and Close" />
+	</target>
+
+	<!-- delete various generated files -->
+	<target name="clean">
+		<echo message="Removing generated files" />
+		<delete><fileset dir="${build.dir}" /></delete>
+		<delete><fileset dir="${runtime.dir}" /></delete>
+		<delete file='Yylex.java' />
+		<delete file='Yylex.java~' />
+		<delete file='ParserTokens.java' />
+		<delete file='Parser.java' />
+	</target>
+
+	<!--=========================================-->
+	<!-- General Build Targets                   -->
+	<!--=========================================-->
+
+	<!-- generate the parser using JACC -->
+	<target name="build-parser">
+		<echo message="Generating the jacc parser" />
+		<java jar="jacc.jar" 
+			fork="true" 
+			failonerror="true" 
+			maxmemory="128m">
+			<!-- uncomment the -h arg to generate HTML report
+			<arg value="-h" />
+			-->
+			<arg value="cminus.jacc" />
+		</java>
+	</target>
+	
+	<!-- generate the scanner using JFlex -->
+	<target name="build-scanner" depends="build-parser">
+		<echo message="Generating the scanner" />
+		<java jar="jflex-full-1.8.2.jar" 
+			fork="true" 
+			failonerror="true" 
+			maxmemory="128m">
+			<arg value="--nobak" />
+        	<arg value="--quiet" />
+			<arg value="cminus.flex" />
+		</java>
+	</target>
+	
+	<!-- compile the scanner and other Java files -->
+	<target name="build" depends="build-scanner">
+		<echo message="Compiling the scanner and parser" />
+		<javac srcdir="." 
+			destdir="${build.dir}" 
+			includeantruntime="false" />
+	</target>
+
+	<!--=========================================-->
+	<!-- Private Targets Used By Other Targets   -->
+	<!--=========================================-->	
+	
+	<!-- Runs the parser, jasmine -->
+	<!-- change the value of the args passed in as needed to test -->
+	<!-- ${filename.c} is the file to compile and run -->
+	<!-- ${input} is optional command line input passed to the program -->
+    <target name="compile-and-run">
+    	<basename property="filename" file="${filename.c}" suffix=".c" />
+		<echo message="Generating jasmin assembly code for ${filename.c}" />
+    	<mkdir dir="${runtime.dir}"/>
+        <java classname="ParseMain" dir="${build.dir}" output="${runtime.dir}/${filename}.j" fork="true">
+        	<arg value="${filename.c}" />
+        </java>
+		<echo message="Compiling ${filename}.j to Main.class" />
+		<java jar="jasmin.jar" 
+			fork="true" 
+			failonerror="true" 
+			maxmemory="128m">
+			<arg value="-d" />
+			<arg value="${runtime.dir}" />
+			<arg value="${runtime.dir}/${filename}.j" />
+		</java>
+    	<echo message="Running ${filename}.c program as Main.class" />
+        <java classname="Main" classpath="${runtime.dir}" fork="false" inputstring="${input}">
+        </java>
+    </target>
+	
+	<!--=========================================-->
+	<!-- Parsing Targets                         -->
+	<!--=========================================-->	
+
+	<!-- run the parser on a single program  -->
+	<!-- change the value of the program property -->
+	<target name="parse-one" depends="">
+		<property name="program" value="ex0.c" />
+		<echo message="Running the parser on ${program}" />
+		<echo message="In ParseMain, turn on PARSE_OUTPUT, turn off CODE_GEN_OUTPUT, and turn SYMBOL_TABLE_OUTPUT on or off" />
+        <java classname="ParseMain" classpath="${build.dir}" fork="false">
+			<arg value="${test.dir}/${program}" />
+		</java>
+	</target>
+
+	<!-- run the parser on a single program string -->
+	<!-- change the value of the arg as needed to test -->
+    <target name="parse-string" depends="">
+		<property name="programstring" value="int x;void main(void){if (1) x = 3; else{if (33) x = 4; else x = 7;}}" />
+		<echo message="Running the parser on one program string" />
+        <java classname="ParseMain" dir="${build.dir}" fork="true" inputstring="${programstring}">
+        </java>
+    </target>
+	
+	<!-- run the parser on the ex0.c thru ex10.c programs -->
+    <target name="parse all ex programs" depends="">
+		<echo message="Running the parser on all ex programs" />
+		<echo message="In ParseMain, turn on PARSE_OUTPUT, turn off CODE_GEN_OUTPUT, and turn SYMBOL_TABLE_OUTPUT on or off" />
+        <java classname="ParseMain" classpath="${build.dir}" fork="false">
+			<arg value="${test.dir}/ex0.c" />
+			<arg value="${test.dir}/ex1.c" />
+			<arg value="${test.dir}/ex2.c" />
+			<arg value="${test.dir}/ex3.c" />
+			<arg value="${test.dir}/ex4.c" />
+			<arg value="${test.dir}/ex5.c" />
+			<arg value="${test.dir}/ex6.c" />
+			<arg value="${test.dir}/ex7.c" />
+			<arg value="${test.dir}/ex8.c" />
+			<arg value="${test.dir}/ex9.c" />
+			<arg value="${test.dir}/ex10.c" />
+        </java>
+    </target>
+
+	<!-- run the parser on the test0.c thru test10.c programs -->
+    <target name="parse all test programs" depends="">
+		<echo message="Running the parser on all test programs" />
+		<echo message="In ParseMain, turn on PARSE_OUTPUT, turn off CODE_GEN_OUTPUT, and turn SYMBOL_TABLE_OUTPUT on or off" />
+        <java classname="ParseMain" classpath="${build.dir}" fork="false">
+			<arg value="${test.dir}/test0.c" />
+			<arg value="${test.dir}/test1.c" />
+			<arg value="${test.dir}/test2.c" />
+			<arg value="${test.dir}/test3.c" />
+			<arg value="${test.dir}/test4.c" />
+			<arg value="${test.dir}/test5.c" />
+			<arg value="${test.dir}/test6.c" />
+			<arg value="${test.dir}/test7.c" />
+			<arg value="${test.dir}/test8.c" />
+			<arg value="${test.dir}/test9.c" />
+			<arg value="${test.dir}/test10.c" />
+        </java>
+    </target>
+	
+	<!-- run the parser on the good test data file -->
+    <target name="parse all named programs" depends="">
+		<echo message="Running the parser on all named programs" />
+		<echo message="In ParseMain, turn on PARSE_OUTPUT, turn off CODE_GEN_OUTPUT, and turn SYMBOL_TABLE_OUTPUT on or off" />
+        <java classname="ParseMain" classpath="${build.dir}" fork="false">
+			<arg value="${test.dir}/echo.c" />
+			<arg value="${test.dir}/fact.c" />
+			<arg value="${test.dir}/gcd.c" />
+			<arg value="${test.dir}/max.c" />
+			<arg value="${test.dir}/most.c" />
+			<arg value="${test.dir}/nested.c" />
+			<arg value="${test.dir}/sort.c" />
+		</java>
+    </target>
+
+	<!--=========================================-->
+	<!-- Compile and Run Targets                 -->
+	<!--=========================================-->	
+
+	<!-- compile and run a single program  -->
+	<!-- change the value of the program property -->
+	<target name="run-one">
+		<property name="program" value="nested.c" />
+		<echo message="Compiling and running ${program}" />
+	    <antcall target="compile-and-run">
+	        <param name="filename.c" value="${test.dir}/${program}" />
+	    </antcall>
+	</target>
+
+	<!-- compile and run all named programs -->
+	<target name="run all named programs">
+		<echo message="Compiling and running all named programs" />
+		<echo message="In ParseMain, turn on CODE_GEN_OUTPUT and turnoff PARSE_OUTPUT and SYMBOL_TABLE_OUTPUT" />
+		<antcall target="run echo.c" />
+		<antcall target="run fact.c" />
+		<antcall target="run gcd.c" />
+		<antcall target="run max.c" />
+		<antcall target="run most.c" />
+		<antcall target="run nested.c" />
+		<antcall target="run sort.c" />
+	</target>
+	        	
+	<!-- echo.c takes one integer as input -->
+	<target name="run echo.c">
+	    <antcall target="compile-and-run">
+	        <param name="filename.c" value="${test.dir}/echo.c" />
+	    	<param name="input" value="54321" />
+	    </antcall>
+		<echo message="expect: 54321" />
+	</target>
+	
+	<!-- fact.c takes one integer as input -->
+	<target name="run fact.c">
+	    <antcall target="compile-and-run">
+	        <param name="filename.c" value="${test.dir}/fact.c" />
+	    	<param name="input" value="7" />
+	    </antcall>
+		<echo message="expect: 5040" />
+	</target>
+	
+	<!-- gcd.c takes two integers as input -->
+	<target name="run gcd.c">
+	    <antcall target="compile-and-run">
+	        <param name="filename.c" value="${test.dir}/gcd.c" />
+	    	<param name="input" value="3780 3528" />
+	    </antcall>
+		<echo message="expect: 252" />
+	</target>
+	
+	<!-- max.c takes two integers as input -->
+	<target name="run max.c">
+	    <antcall target="compile-and-run">
+	        <param name="filename.c" value="${test.dir}/max.c" />
+	    	<param name="input" value="71 99" />
+	    </antcall>
+		<echo message="expect: 99" />
+	</target>
+	
+	<!-- most.c takes one integer as input -->
+	<target name="run most.c">
+	    <antcall target="compile-and-run">
+	        <param name="filename.c" value="${test.dir}/most.c" />
+	    	<param name="input" value="8" />
+	    </antcall>
+		<echo message="expect (one per line): 8 8 8 8 8 8 8 8 8 8 80 80 10 0 0 0 50 60 15" />
+	</target>
+	
+	<!-- nested.c takes no input -->
+	<target name="run nested.c">
+	    <antcall target="compile-and-run">
+	        <param name="filename.c" value="${test.dir}/nested.c" />
+	    	<param name="input" value="" />
+	    </antcall>
+		<echo message="expect: 5" />
+	</target>
+	
+	<!-- sort.c takes ten integers as input -->
+	<target name="run sort.c">
+	    <antcall target="compile-and-run">
+	        <param name="filename.c" value="${test.dir}/sort.c" />
+	    	<param name="input" value="5 9 1 6 3 2 7 4 8 0" />
+	    </antcall>
+		<echo message="expect (one per line): 0 1 2 3 4 5 6 7 8 9" />
+	</target>
+
+	<!--=========================================-->
+	<!-- Evaluation Targets                      -->
+	<!--=========================================-->	
+
+    <target name="evaluate parser" depends="">
+		<echo message="Evaluating parsing of all ex, test, and named programs" />
+		<echo message="In ParseMain, turn on PARSE_OUTPUT and SYMBOL_TABLE_OUTPUT and turn off CODE_GEN_OUTPUT" />
+	    <antcall target="parse all ex programs" />
+	    <antcall target="parse all test programs" />
+	    <antcall target="parse all named programs" />
+    </target>
+
+    <target name="evaluate codegen" depends="">
+		<echo message="Evaluating code generation all runnable named programs" />
+		<echo message="In ParseMain, turn on CODE_GEN_OUTPUT and turn off PARSE_OUTPUT and SYMBOL_TABLE_OUTPUT" />
+	    <antcall target="run all named programs" />
+    </target>
+
+</project>

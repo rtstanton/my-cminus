@@ -1,0 +1,692 @@
+// cminus.jacc - parser for C-Minus programming language.
+// Author: Ricky Stanton
+// Date: 4/18/2024
+
+%{
+import java.io.*;
+import java.nio.charset.*;
+import java.util.*;
+%}
+
+%class		Parser
+%interface	ParserTokens
+%semantic	ParserVal: yylval
+%get		token
+%next		yylex()
+%start		program
+
+// Constants for all recognized tokens
+%token INPUT PRINT RETURN WHILE IF ELSE VOID INT
+%token IDENTIFIER NUMBER
+%token LTE ADDOP SUBOP MULOP DIVOP ASSIGN COMMA SEMI
+%token LPAREN RPAREN LBRACK RBRACK LBRACE RBRACE
+%token UNKNOWN
+/* ENDINPUT generated automatically by jacc */
+
+// Left associative tokens
+%left ADDOP SUBOP MULOP DIVOP LT GT LTE GTE EQ NOTEQ IF
+
+// Right associative tokens
+%right ASSIGN ELSE
+
+%%
+
+program: program_start declaration_list
+		{
+			// CODEGEN if input instruction, generate read code
+			// CODEGEN generate the class constructor
+			// CODEGEN generate the epilog
+			// SYMTAB exit scope
+			symtab.exitScope();
+			
+			// SEMANTIC if no main function, report semantic error 
+			if (!seenMain) {
+				semerror("No main defined in program");
+			}
+		}
+	;
+
+program_start:
+		{
+			// SYMTAB enter scope
+			symtab.enterScope();
+			
+			// CODEGEN generate prolog
+		}
+	;
+	
+declaration:	var_declaration
+		|	fun_declaration
+	;
+
+var_declaration: type_specifier IDENTIFIER SEMI
+		{
+			// SYMTAB get type and name
+			int vartype = $1.ival;
+			String name = $2.sval;
+			
+			// SYMTAB lookup name in table, semantic error if already present, redeclaration
+			if (symtab.lookup(name)) {
+				semerror("Redeclaration of variable " + name + " in the current scope");
+			}
+			
+			// SEMANTIC else if type is void, semantic error, invalid type
+			else if (vartype == VOID) {
+				semerror("Variable " + name + " cannot be of type void");
+			}
+			else {
+				// SYMTAB got here, so ok, create variable record, insert in symbol table
+				VarRec rec = new VarRec(name, symtab.getScope(), vartype);
+				symtab.insert(name, rec);
+				
+				// CODEGEN and also generate static variable declaration of scope is global (0)
+			}
+		}
+		| type_specifier IDENTIFIER LBRACK NUMBER RBRACK SEMI
+		{
+			// SYMTAB get type, name, array length
+			int vartype = $1.ival;
+			String name = $2.sval;
+			int arrlen = $4.ival;
+			System.out.println(vartype + "," + name + "," + arrlen);
+			
+			// SYMTAB lookup name in table, semantic error if already present, redeclaration
+			if (symtab.lookup(name)) {
+				semerror("Redeclaration of array variable " + name + " in the current scope");
+			}
+			
+			// SEMANTIC else if type is void, semantic error, invalid type
+			else if (vartype == VOID) {
+				semerror("Array variable " + name + " cannot be of type void");
+			}
+			else {
+				// SYMTAB got here, so ok, create array variable record, insert in symbol table
+				ArrRec rec = new ArrRec(name, symtab.getScope(), vartype, arrlen);
+				symtab.insert(name, rec);
+				
+				// CODEGEN and also generate static variable declaration of scope is global (0)
+				// CODEGEN or if not global, generate array init for local variable
+			}
+		}
+	;
+
+type_specifier: INT { $$ = $1; }
+		|       VOID { $$ = $1; }
+	;
+
+fun_declaration: fun_name fun_params compound_stmt 
+		{
+			firstTime = true; // first time we're generating function end
+			
+			// CODEGEN generate function end
+		}
+	;
+
+fun_name: type_specifier IDENTIFIER
+		{
+			// Get the return type and name of function
+			int rettype = $1.ival;
+			String name = $2.sval;
+			
+			// Remember return type and name for use later
+			returnTypes.push(rettype);
+			functionNames.push(name);
+
+			// SYMTAB create a function record
+			FunRec rec = new FunRec(name, symtab.getScope(), rettype, null); // Fill in later
+
+			// SYMTAB lookup function name in symbol table
+			// SEMANTIC if name already in table, redeclaration error
+			if (symtab.lookup(name)) {
+				semerror("Redeclaration of name " + name + " in the current scope");
+			}
+			else if (!seenMain) {
+				// SEMANTIC else if we haven't yet seen a main function
+				// SEMANTIC then add it to the symbol table, set its jvm number to 0 (for new function)
+				symtab.insert(name, rec);
+				rec.setJVMNum(0);
+				// SEMANTIC and if it is "main" the remember it (seenMain) and set
+				// SEMANTIC its jvm number to 1 (for main)
+				if (name.equals("main")) {
+					seenMain = true;
+					rec.setJVMNum(1);
+				}
+			}
+			else {
+				// SEMANTIC else the function is declared after main, error
+				semerror("Function " + name + " declared after main");
+			}
+			
+			// Remember the function record for later use
+			symTabRecs.push(rec);
+
+			// SYMTAB enter scope (for both params and compound_stmt coming next)
+			symtab.enterScope();
+		}
+	;
+
+fun_params:  LPAREN params RPAREN 
+		{
+			// Get the return type and function name we saved
+			int rettype = returnTypes.pop();
+			String name = functionNames.pop();
+
+			// Get parameter list (from 2nd item in grammar rule)
+			@SuppressWarnings("unchecked")
+			List<SymTabRec> paramList = (List<SymTabRec>)$2.obj;
+			
+			// Get the function record we remembered
+			FunRec rec = (FunRec)symTabRecs.pop();
+			
+			// Set its parameter list
+			rec.setParams(paramList);
+			
+			// Perform some semantic checks on the function
+			if (name.equals("main")) {
+				// SEMANTIC if name is "main"
+				// SEMANTIC and its return type is not VOID, has to be void
+				// SEMANTIC if its parameter list is null, can't be empty
+				if (rettype != VOID) {
+					semerror("Return type of main must be void");
+				}
+				if (paramList != null) {
+					semerror("No parameters allowed in main function");
+				}
+			}
+
+			// CODEGEN generate function beginning
+		}
+	;
+
+params:		param_list { $$ = $1; }
+		|	VOID { $$ = new ParserVal(null); }
+		|	/*empty*/ { $$ = new ParserVal(null); }
+	;
+
+param_list:	param_list COMMA param 
+		{
+			// Get the parameter list from item 1 in grammar rule
+			@SuppressWarnings("unchecked")
+			// SYMTAB $1 has the object that is a List<SymTabRec>
+			List<SymTabRec> reclist = (List<SymTabRec>)$1.obj;
+			
+			// Get the parameter from item 3 in the grammar rule
+			// SYMTAB $3 has the object that is a SymTabRec
+			SymTabRec rec = (SymTabRec)$3.obj;
+			
+			// Add the parameter to the parameter list
+			// SYMTAB add the param to the param_list (variable)
+			reclist.add(rec);
+			
+			// Return the value
+			// SYMTAB return the param_list as a ParserVal to return value $$
+			$$ = new ParserVal(reclist);
+		}
+		|	param
+		{
+			// SYMTAB create an empty List<SymTabRec>
+			List<SymTabRec> reclist = new ArrayList<SymTabRec>();
+			
+			// SYMTAB get $1 object as a SymTabRec
+			SymTabRec rec = (SymTabRec)$1.obj;
+			
+			// SYMTAB add the param rec to the list
+			reclist.add(rec);
+			
+			// SYMTAB return the list as a ParserVal to return value $$
+			$$ = new ParserVal(reclist);
+		}
+	;
+
+param:		type_specifier IDENTIFIER 
+		{
+			// SYMTAB get the type and name
+			int vartype = $1.ival;
+			String name = $2.sval;
+			
+			// SYMTAB create a VarRec
+			VarRec rec = new VarRec(name, symtab.getScope(), vartype);
+			
+			// SYMTAB lookup the name in the symbol table
+			// SYMTAB if already in table, redeclaration error
+			if (symtab.lookup(name)) {
+				semerror("Redeclaration of " + name + " as a param in current scope");
+			}
+			
+			// SYMTAB else insert it into the symbol table
+			else {
+				symtab.insert(name, rec);
+			}
+			
+			// SYMTAB return it as a ParserVal via $$ return value
+			$$ = new ParserVal(rec);
+			
+		}
+		|	type_specifier IDENTIFIER LBRACK RBRACK
+		{
+			// SYMTAB get the type and name
+			int vartype = $1.ival;
+			String name = $2.sval;
+			
+			// SYMTAB create a VarRec (with -1 size as placeholder)
+			ArrRec rec = new ArrRec(name, symtab.getScope(), vartype, -1);
+
+			// SYMTAB lookup in symbol table
+			// SYMTAB if already in table, redeclaration error
+			if (symtab.lookup(name)) {
+				semerror("Redeclaration of " + name + " as a param in current scope");
+			}
+			
+			// SYMTAB else insert it into the table
+			else {
+				symtab.insert(name, rec);
+			}
+			
+			// SYMTAB return it as a ParserVal via $$ return value
+			$$ = new ParserVal(rec);
+		}
+	;
+
+compound_stmt: compound_stmt_start LBRACE local_declarations statement_list RBRACE
+		{
+			// SYMTAB exit scope
+		}
+	;
+
+compound_stmt_start:
+		{
+			// special handling when part of a fun_decl
+			if (firstTime)
+			{
+				// reset to false here to clear for next time needed
+				firstTime = false;
+			}
+			else
+			{
+				// SYMTAB enter scope
+				symtab.enterScope();
+			}
+		}
+	;
+
+
+
+var_assign_stmt: IDENTIFIER ASSIGN expression SEMI
+		{
+			// SYMTAB get identifier name from item 1 in grammar rule
+			String name = $1.sval;
+			
+			// SYMTAB get the record from the symbol table
+			SymTabRec rec = symtab.get(name);
+			
+			// SYMTAB if not found (null), semantic error, undeclared
+			if (rec == null) {
+				semerror("Undeclared name " + name + " in current scope");
+			}
+			
+			// SYMTAB else if it isn't a regular variable, semantic error
+			else if (!rec.isVar()) {
+				semerror("Name " + name + " is not a variable in current scope");
+			}
+			
+			// CODEGEN else ok, generate store
+			else {
+			
+			}
+		}
+	;
+
+arr_assign_stmt: arr_assign_stmt_name LBRACK expression RBRACK ASSIGN expression SEMI
+		{
+			// CODEGEN generate IA store
+		}
+	;
+	
+arr_assign_stmt_name: IDENTIFIER
+		{
+			// SYMTAB get name from item 1 in rule
+			String name = $1.sval;
+
+			// SYMTAB get the record from the symbol table
+			SymTabRec rec = symtab.get(name);
+			
+			// SYMTAB if not found (null), semantic error, undeclared
+			if (rec == null) {
+				semerror("Undeclared name " + name + " in current scope");
+			}
+			
+			// SYMTAB else if it isn't an array variable, semantic error
+			else if (!rec.isArr()) {
+				semerror("Name " + name + " is not an array variable in current scope");
+			}
+			
+			// CODEGEN else ok, generate load array address
+			else {
+			
+			}
+		}
+	;
+
+selection_stmt: IF LPAREN expression RPAREN go_to_else statement go_to_end_else ELSE statement
+		{
+			// Get the end label and write at end of if statement
+			String label = lastSelectionLabels.pop();
+			
+			// CODEGEN generate label
+		}
+	;
+	
+go_to_else: /* empty */
+		{
+			// Create and remember else part label and write goto after condition
+			String label = "IfFirst" + GenCode.getLabel();
+			firstSelectionLabels.push(label);
+			
+			// CODEGEN generate fgoto label
+		}
+	;
+
+go_to_end_else: /* empty */
+		{
+			// Create and remember end label, write go to
+			String label = "IfLast" + GenCode.getLabel();
+			lastSelectionLabels.push(label);
+			
+			// CODGEN generate goto label
+			
+			// Get the else part label and write before else part
+			label = firstSelectionLabels.pop();
+			
+			// CODEGEN generate label
+		}
+	;
+
+iteration_stmt:	WHILE top_label LPAREN expression RPAREN goto_end statement
+		{			
+			// Get and write the goto top
+			String label = firstIterationLabels.pop();
+			
+			// CODEGEN generate goto label
+		
+			// Get the end label and write at end of while statement
+			label = lastIterationLabels.pop();
+			
+			// CODEGEN generate label
+		}
+	;
+	
+top_label:
+		{
+			// Create and remember top label and write at top of while loop
+			String label = "WhileFirst" + GenCode.getLabel();
+			firstIterationLabels.push(label);
+			
+			// CODEGEN generate label
+		}
+	;
+
+goto_end:
+		{
+			// Create and remember end label, write fgoto end
+			String label = "WhileLast" + GenCode.getLabel();
+			lastIterationLabels.push(label);
+			
+			// CODEGEN generate fgoto label
+		}
+	;
+
+print_stmt:	print_stmt_start LPAREN expression RPAREN SEMI
+		{
+			// CODEGEN generate end print
+		}
+	;
+
+print_stmt_start: PRINT
+		{
+			// CODEGEN generate begin print
+		}
+	;
+
+input_stmt:	IDENTIFIER ASSIGN INPUT LPAREN RPAREN SEMI
+		{
+			// SYMTAB get name from item 1 of grammar rule
+			String name = $1.sval;
+
+			// SYMTAB get the record from the symbol table
+			SymTabRec rec = symtab.get(name);
+			
+			// SYMTAB if not found (null), semantic error, undeclared
+			if (rec == null) {
+				semerror("Undeclared name " + name + " in current scope");
+			}
+			
+			// SYMTAB else if it isn't a regular variable, semantic error
+			else if (!rec.isVar()) {
+				semerror("Name " + name + " is not a variable in current scope");
+			}
+			
+			// CODEGEN else ok, set "usesRead" to true, generate read
+			else {
+			
+			}
+		}
+	;
+
+return_stmt:	RETURN SEMI
+		{
+			// CODEGEN generate return
+		} 
+		|		RETURN expression SEMI
+		{
+			// CODEGEN generate I return
+		}
+	;
+
+expression:	additive_expression relop additive_expression
+		{
+			// CODEGEN get value of relational op from item 2 of rule
+
+			// CODEGEN generate relational oper
+		}
+		|	additive_expression
+	;
+
+
+additive_expression: additive_expression addop term
+		{
+			// CODEGEN generate arithmetic oper
+		}
+		|	term
+	;
+
+addop:	ADDOP | SUBOP
+	;
+
+term:	term mulop factor 
+		{
+			// CODEGEN generate aritmetic oper
+		}
+		| factor
+	;
+
+mulop:	MULOP | DIVOP
+	;
+
+factor:		LPAREN expression RPAREN 
+		|	IDENTIFIER 
+		{
+			// SYMTAB get name from item 1 of rule
+			String name = $1.sval;
+
+			// SYMTAB get the record from the symbol table
+			SymTabRec rec = symtab.get(name);
+			
+			// SYMTAB if not found (null), semantic error, undeclared
+			if (rec == null) {
+				semerror("Undeclared name " + name + " in current scope");
+			}
+			
+			// SYMTAB else if it isn't a regular variable or an array variable, semantic error, undeclared
+			else if (!rec.isVar() && !rec.isArr()) {
+				semerror("Name " + name + " is not a variable or array in current scope");
+			}
+			
+			else {
+				// CODEGEN else if it IS a regular variable, generate load var
+	
+				// CODEGEN else (it's an array variable), generate load array address
+			}
+		}
+		| 	arr_factor
+		| 	call 
+		| 	NUMBER
+		{
+			// CODEGEN generate load constant
+		}
+	;
+
+arr_factor: arr_factor_name LBRACK expression RBRACK 
+		{
+			// CODEGEN generate IA load
+		}
+	;
+
+arr_factor_name: IDENTIFIER
+		{
+			// SYMTAB get name from item 1 of rule
+			String name = $1.sval;
+
+			// SYMTAB get the record from the symbol table
+			SymTabRec rec = symtab.get(name);
+			
+			// SYMTAB if not found (null), semantic error, undeclared
+			if (rec == null) {
+				semerror("Undeclared name " + name + " in current scope");
+			}
+			
+			// SYMTAB else if it isn't an array variable, semantic error
+			else if (!rec.isArr()) {
+				semerror("Name " + name + " is not an array in current scope");
+			}
+			
+			// CODEGEN else ok, generate load array address
+			else {
+				
+			}
+		}
+	;
+
+call:		IDENTIFIER LPAREN args RPAREN 
+		{
+			// SYMTAB get name from item 1 of rule
+			String name = $1.sval;
+			
+			// SYMTAB get the record from the symbol table
+			SymTabRec = symtab.get(name);
+			
+			// SYMTAB if not found (null), semantic error, undeclared
+			if (rec == null) {
+				semerror("Undeclared name " + name + " in current scope");
+			}
+			
+			// SYMTAB else if it isn't a function, semantic error
+			else if (!rec.isFun()) {
+				semerror("Name " + name + " is not a function in current scope");
+			}
+			
+			// CODEGEN else ok, generate function call
+			else {
+				
+			}
+		}
+	;
+
+///////////// JUST SO THE PARSER WILL BUILD, GET RID OF THESE!
+args: ;
+declaration_list: ;
+local_declarations: ;
+relop: ;
+statement: ;
+statement_list: ;
+//////////////////////////////////////////////////////////////
+
+%%
+
+private String program;
+private String name;
+
+Stack<String> firstSelectionLabels = new Stack<String>();
+Stack<String> lastSelectionLabels = new Stack<String>();
+Stack<String> firstIterationLabels = new Stack<String>();
+Stack<String> lastIterationLabels = new Stack<String>();
+
+Stack<String> functionNames = new Stack<String>();
+Stack<Integer> returnTypes = new Stack<Integer>();
+
+/* reference to a temporary SymTabRec */
+Stack<SymTabRec> symTabRecs = new Stack<SymTabRec>();
+
+/* reference to the lexer object */
+private static Yylex lexer;
+
+ParserVal yylval; // current token value
+int token;  // current token
+
+/* The symbol table */
+public final SymTab<SymTabRec> symtab = new SymTab<SymTabRec>();
+
+/* To check if main has been encountered and is the last declaration */
+private boolean seenMain = false;
+
+/* To take care of nuance associated with params and decls in compound stmt */
+private boolean firstTime = true;
+
+/* To gen boilerplate code for read only if input was encountered  */
+private boolean usesRead = false;
+
+/* Interface to the lexer */
+private int yylex()
+{
+    int retVal = -1;
+    try
+	{
+		retVal = lexer.yylex();
+    }
+	catch (IOException e)
+	{
+		System.err.println("IO Error:" + e);
+    }
+    return retVal;
+}
+	
+/* syntax errors */
+public void yyerror (String error)
+{
+    System.err.println("Parse Error : " + error);
+}
+
+/* semantic errors */
+public void semerror (String error)
+{
+	if (ParseMain.SYMBOL_TABLE_OUTPUT)
+	{
+    	System.err.println("Semantic Error : " + error);
+	}
+}
+
+/* constructor taking a Reader object */
+public Parser (Reader r)
+{
+	lexer = new Yylex(r, this);
+}
+
+/* constructor taking a String */
+public Parser(String name, String program)
+{
+	this.name = name;
+	this.program = program;
+	InputStream lineStream = new ByteArrayInputStream(program.getBytes((Charset.forName("UTF-8"))));
+	InputStreamReader r = new InputStreamReader(lineStream);
+	lexer = new Yylex(r, this);
+	token = yylex(); // prime the pump
+}
