@@ -55,6 +55,10 @@ program_start:
 		}
 	;
 	
+declaration_list:  declaration_list declaration 
+		|  declaration
+	;
+	
 declaration:	var_declaration
 		|	fun_declaration
 	;
