@@ -589,7 +589,7 @@ factor:		LPAREN expression RPAREN
 			}
 			
 			// SYMTAB else if it isn't a regular variable or an array variable, semantic error, undeclared
-			if (!rec.isVar() && !rec.isArr())
+			else if (!rec.isVar() && !rec.isArr())
 			{
 				semerror("Name " + name + " is not a variable or array in current scope");			
 			}
