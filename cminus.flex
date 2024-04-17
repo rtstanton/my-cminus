@@ -53,6 +53,8 @@ identifier = ({letter})({letter}|{digit}|"_")*
 
 newline = \r|\n|\r\n
 whitespace     = [\s]+
+linecomment = "//".*{newline}
+multicomment = "/*"((\*+[^/*])|([^*]))*\**"*/"
 
 %%
 
