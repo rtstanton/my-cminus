@@ -131,11 +131,12 @@ var_declaration: type_specifier IDENTIFIER SEMI
 				if (symtab.getScope() == 0) {
 					GenCode.genStaticDecl(rec);
 				}
+				// CODEGEN or if not global, generate array init for local variable
+				else {
+					GenCode.genArrInit(rec);
+				}
 			}
-			// CODEGEN or if not global, generate array init for local variable
-			else {
-				GenCode.genArrInit(rec);
-			}
+			
 		}
 	;
 
