@@ -439,7 +439,7 @@ arr_assign_stmt_name: IDENTIFIER
 			
 			// CODEGEN else ok, generate load array address
 			else {
-				GenCode.GenLoadArrAddr(rec);
+				GenCode.genLoadArrAddr(rec);
 			}
 		}
 	;
@@ -653,6 +653,7 @@ factor:		LPAREN expression RPAREN
 		| 	NUMBER
 		{
 			// CODEGEN generate load constant
+			int value = $1.ival;
 			GenCode.genLoadConst(value);
 		}
 	;
